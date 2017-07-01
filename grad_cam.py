@@ -1,4 +1,4 @@
-GPU = True
+GPU = False
 
 if GPU:
     # use keras and tensorflow limitating gpu memory
@@ -12,6 +12,7 @@ else:
     import os
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"   # see issue #152
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    import tensorflow as tf
 
 from keras.applications.vgg16 import (
     VGG16, preprocess_input, decode_predictions)
@@ -21,16 +22,16 @@ from keras.models import Sequential
 
 from tensorflow.python.framework import ops
 import keras.backend as K
-#import tensorflow as tf
 import numpy as np
 import keras
 import sys
 import cv2
 K.set_learning_phase(1) #set learning phase
+DEFAULT = False
 
 def target_category_loss(x, category_index, nb_classes):
-    return tf.multiply(x, K.one_hot([category_index], nb_classes))
-    #return tf.mul(x, K.one_hot([category_index], nb_classes))
+    #return tf.multiply(x, K.one_hot([category_index], nb_classes))
+    return tf.mul(x, K.one_hot([category_index], nb_classes))
 
 def target_category_loss_output_shape(input_shape):
     return input_shape
@@ -116,18 +117,8 @@ def grad_cam(input_model, image, category_index, layer_name, nb_classes, size, o
     
     loss = K.sum(model.layers[-1].output)
     
-    """
-    print layer_name, 'Model topology:\n'
-    for i, layer in enumerate(model.layers[0].layers):
-        print(i, layer.name)
-        if layer.name == layer_name:
-            print "===="
-    """
-    
     conv_output =  [l for l in model.layers[0].layers if l.name == layer_name][0].output
-    print conv_output
     grads = normalize(K.gradients(loss, conv_output)[0])
-    #gradient_function = K.function([model.layers[0].input], [conv_output, grads]) # original
     gradient_function = K.function([model.layers[0].input], [conv_output, grads])
 
     output, grads_val = gradient_function([image])
@@ -147,9 +138,13 @@ def grad_cam(input_model, image, category_index, layer_name, nb_classes, size, o
 
     #Return to BGR [0..255] from the preprocessed image
     
-    image = original_im
-    #image -= np.min(image)
-    #image = np.minimum(image, 255)
+    if DEFAULT:
+        print 'Default mode'
+        image = image[0, :]
+        image -= np.min(image)
+        image = np.minimum(image, 255)
+    else:
+        image = original_im
 
     cam = cv2.applyColorMap(np.uint8(255*heatmap), cv2.COLORMAP_JET)
     cam = np.float32(cam) + np.float32(image)
@@ -161,6 +156,7 @@ def general_gradCAM(model, preprocessed_input, predicted_class, model_generator,
 
     cam, heatmap = grad_cam(model, preprocessed_input, predicted_class, block_CAM, nb_classes, size, original_im)
     cv2.imwrite("gradcam.jpg", cam)
+    
     """
     register_gradient()
     guided_model = modify_backprop(model, 'GuidedBackProp', model_generator, weights)
@@ -178,7 +174,8 @@ if __name__ == '__main__':
     """Example with VGG and Imagenet. Choose an image and execute:
             python grad_cam.py new_boat.jpg
     """
-    
+    DEFAULT = True
+
     model = VGG16(weights='imagenet')
     
     preprocessed_input = load_image(sys.argv[1])
@@ -188,6 +185,6 @@ if __name__ == '__main__':
     print('%s (%s) with probability %.2f' % (top_1[1], top_1[0], top_1[2]))
     predicted_class = np.argmax(predictions)
     
-    general_grad_CAM(model, preprocessed_input, predicted_class, VGG16, weights='imagenet',  
+    general_gradCAM(model, preprocessed_input, predicted_class, VGG16, weights='imagenet',  
                      block_CAM="block5_conv3")
 
